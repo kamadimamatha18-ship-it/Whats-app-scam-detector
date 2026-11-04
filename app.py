@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, render_template_string, request
 import re
 
 app = Flask(__name__)
@@ -39,7 +39,7 @@ HTML_PAGE = """
         {% if result %}
         <div class="result-box {{ risk_class }}">
             <h3>పరిశీలన ఫలితం (Analysis Report):</h3>
-            <p><strong>📊 రిస్క్ స్కోర్:</strong> {{ score }}%</p>
+            <p><strong>📊 రిస్క్ స్కోర్:</strong> {{ score }}</p>
             <p><strong>📌 స్టేటస్:</strong> {{ status }}</p>
             <p><strong>💡 సూచన:</strong> {{ advice }}</p>
             {% if reasons %}
@@ -59,7 +59,13 @@ HTML_PAGE = """
 
 
 def analyze_message(message):
-    message_lower = message.lower()
+    message_lower = message.lower().strip()
+
+    # 1. ఒకవేళ రెజ్యూమే లేదా డైరెక్ట్ లింక్ ఇస్తే హ్యాండిల్ చేయడం
+    if message_lower.startswith('http://') or message_lower.startswith('https://') or message_lower.startswith('www.'):
+        return "N/A", "⚠️ ఇన్వాలిడ్ ఇన్‌పుట్ (Invalid Input)", "దయచేసి ఇది స్కామ్ మెసేజ్ డిటెక్టర్ కనుక డైరెక్ట్ లింక్/రెజ్యూమే ఇవ్వకండి. మెసేజ్ టెక్స్ట్ ఇవ్వండి.", [
+            "ఇది డైరెక్ట్ వెబ్‌సైట్ లింక్ లేదా రెజ్యూమే లింక్ లా ఉంది."], "med-risk"
+
     risk_score = 0
     reasons = []
 
@@ -80,19 +86,69 @@ def analyze_message(message):
             reasons.append("నకిలీ లేదా అనుమానాస్పద వెబ్‌సైట్ డొమైన్.")
 
     if risk_score >= 80:
-        status = "🚨 హై రిస్క్ (HIGH RISK - 100% స్కామ్)"
+        score_str = f"{risk_score}%"
+        status = "🚨 హై రిస్క్ (HIGH RISK - స్కామ్)"
         advice = "దయచేసి ఈ మెసేజ్‌ని నమ్మకండి మరియు లింక్‌ని అస్సలు క్లిక్ చేయకండి!"
         risk_class = "high-risk"
     elif risk_score >= 40:
+        score_str = f"{risk_score}%"
         status = "⚠️ మీడియం రిస్క్ (Moderate Risk - జాగ్రత్త)"
         advice = "ఇది మోసపూరితమయ్యే అవకాశం ఉంది. తొందరపడి ఎలాంటి వివరాలు ఇవ్వకండి."
         risk_class = "med-risk"
     else:
+        score_str = "0%"
         status = "✅ సురక్షితం (Safe)"
         advice = "ఈ మెసేజ్‌లో ఎలాంటి ప్రమాదకరమైన అంశాలు కనిపించలేదు."
         risk_class = "safe"
 
-    return risk_score, status, advice, reasons, risk_class
+    return score_str, status, advice, reasons, risk_class
+
+
+def analyze_message(message):
+    message_lower = message.lower().strip()
+
+    # 1. లింక్ లేదా URL ఇస్తేనే స్కామ్ చెక్ చేయాలి
+    if not (message_lower.startswith('http://') or message_lower.startswith('https://') or message_lower.startswith(
+            'www.')):
+        return "N/A", "⚠️ ఇన్వాలిడ్ ఇన్‌పుట్ (Invalid Input)", "Enter valid link: దయచేసి చెక్ చేయడానికి సరైన లింక్ లేదా మెసేజ్ టెక్స్ట్ ఇవ్వండి.", [
+            "ఇచ్చిన ఇన్‌పుట్ సరిగ్గా లేదు లేదా లింక్ రూపంలో లేదు."], "med-risk"
+
+    risk_score = 0
+    reasons = []
+
+    scam_keywords = ["free", "recharge", "click", "claim", "lottery", "won", "prize", "urgent", "congratulations",
+                     "offer", "cashback"]
+    found_keywords = [kw for kw in scam_keywords if kw in message_lower]
+
+    if found_keywords:
+        risk_score += 40
+        reasons.append(f"అనుమానాస్పద పదాలు గుర్తించబడ్డాయి: {', '.join(found_keywords)}")
+
+    urls = re.findall(r'https?://[^\s]+', message)
+    if urls:
+        risk_score += 50
+        reasons.append(f"అనుమానాస్పద లింక్ ఉంది: {urls[0]}")
+        if "fake" in urls[0] or "free" in urls[0] or "offer" in urls[0] or "win" in urls[0]:
+            risk_score += 10
+            reasons.append("నకిలీ లేదా అనుమానాస్పద వెబ్‌సైట్ డొమైన్.")
+
+    if risk_score >= 80:
+        score_str = f"{risk_score}%"
+        status = "🚨 హై రిస్క్ (HIGH RISK - స్కామ్)"
+        advice = "దయచేసి ఈ మెసేజ్‌ని నమ్మకండి మరియు లింక్‌ని అస్సలు క్లిక్ చేయకండి!"
+        risk_class = "high-risk"
+    elif risk_score >= 40:
+        score_str = f"{risk_score}%"
+        status = "⚠️ మీడియం రిస్క్ (Moderate Risk - జాగ్రత్త)"
+        advice = "ఇది మోసపూరితమయ్యే అవకాశం ఉంది. తొందరపడి ఎలాంటి వివరాలు ఇవ్వకండి."
+        risk_class = "med-risk"
+    else:
+        score_str = "0%"
+        status = "✅ సురక్షితం (Safe)"
+        advice = "ఈ లింక్‌లో ఎలాంటి ప్రమాదకరమైన అంశాలు కనిపించలేదు."
+        risk_class = "safe"
+
+    return score_str, status, advice, reasons, risk_class
 
 
 @app.route("/", methods=["GET", "POST"])
